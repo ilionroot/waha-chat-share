@@ -1,0 +1,6 @@
+[Unit]
+Description=Reinicia a sessão do WAHA se cair
+
+[Service]
+Type=oneshot
+ExecStart=%h/Documents/waha-chat-share/watchdog.sh

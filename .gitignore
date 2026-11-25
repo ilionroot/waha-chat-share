@@ -1,0 +1,6 @@
+.env
+sessions/
+__pycache__/
+server.log
+qr.png
+.impeccable/

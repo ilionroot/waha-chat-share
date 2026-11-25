@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conversa</title>
+<style>
+  :root { --bg: #efeae2; --me: #d9fdd3; --them: #fff; --text: #111b21; --muted: #667781; --accent: #00a884; --quote: #0000000d; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0b141a; --me: #005c4b; --them: #202c33; --text: #e9edef; --muted: #8696a0; --quote: #ffffff14; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100dvh; display: flex; flex-direction: column; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, sans-serif; }
+  header { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: var(--them); box-shadow: 0 1px 2px #0002; }
+  button { font: inherit; padding: 6px 12px; cursor: pointer; border: 0; border-radius: 6px; }
+  #scroll { flex: 1; overflow-y: auto; }
+  main { max-width: 800px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
+  .msg { max-width: 75%; padding: 6px 10px; border-radius: 8px; background: var(--them); white-space: pre-wrap; word-wrap: break-word; cursor: pointer; }
+  .msg:hover { outline: 1px solid var(--accent); }
+  .me { align-self: flex-end; background: var(--me); }
+  .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .author { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .quote { border-left: 3px solid var(--accent); background: var(--quote); padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; font-size: 12px; color: var(--muted);
+           overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .status { text-align: center; color: var(--muted); }
+  .media { display: block; max-width: 100%; margin: 2px 0 4px; border-radius: 6px; }
+  img.media, video.media { max-height: 360px; cursor: zoom-in; }
+  audio.media { width: 280px; max-width: 100%; }
+  a.media { color: var(--accent); }
+  footer { background: var(--them); padding: 8px 16px; }
+  footer .inner { max-width: 800px; margin: 0 auto; }
+  #replying { display: none; align-items: center; gap: 8px; margin-bottom: 6px; }
+  #replying.on { display: flex; }
+  #replying .quote { flex: 1; margin: 0; }
+  form { display: flex; gap: 8px; }
+  textarea { flex: 1; resize: none; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--muted); background: var(--bg); color: var(--text); }
+  #sendBtn { background: var(--accent); color: #fff; }
+  #attachBtn { background: transparent; color: var(--text); font-size: 20px; padding: 6px; }
+  #attached { display: none; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+  #attached.on { display: flex; }
+  #attachedImg { max-height: 120px; max-width: 200px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<header><strong>Conversa</strong><button id="refresh">Atualizar</button></header>
+<div id="scroll"><main id="chat"><p class="status">Carregando…</p></main></div>
+<footer><div class="inner">
+  <div id="replying"><div class="quote" id="replyText"></div><button id="cancelReply" title="Cancelar resposta">✕</button></div>
+  <div id="attached"><img id="attachedImg" alt="imagem anexada"><button type="button" id="cancelImage" title="Remover imagem">✕</button></div>
+  <form id="form">
+    <input type="file" id="fileInput" accept="image/*" hidden>
+    <button type="button" id="attachBtn" title="Anexar imagem (ou cole com Ctrl+V)">📎</button>
+    <textarea id="text" rows="2" placeholder="Mensagem (Enter envia, Shift+Enter quebra linha). Clique numa mensagem para responder."></textarea>
+    <button id="sendBtn" type="submit">Enviar</button>
+  </form>
+</div></footer>
+<script>
+const chat = document.getElementById("chat");
+const scroll = document.getElementById("scroll");
+const form = document.getElementById("form");
+const text = document.getElementById("text");
+const replying = document.getElementById("replying");
+const replyText = document.getElementById("replyText");
+const fmt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
+let replyTo = null;
+let image = null;
+const attached = document.getElementById("attached");
+const attachedImg = document.getElementById("attachedImg");
+const fileInput = document.getElementById("fileInput");
+
+function setImage(file) {
+  if (!file) {
+    image = null;
+    attachedImg.removeAttribute("src");
+    attached.classList.remove("on");
+    fileInput.value = "";
+    return;
+  }
+  if (!file.type.startsWith("image/")) return alert("Só imagens.");
+  const reader = new FileReader();
+  reader.onload = () => {
+    image = { mimetype: file.type, filename: file.name || "imagem", data: reader.result.split(",")[1] };
+    attachedImg.src = reader.result;
+    attached.classList.add("on");
+    text.focus();
+  };
+  reader.readAsDataURL(file);
+}
+
+function status(msg) {
+  const p = document.createElement("p");
+  p.className = "status";
+  p.textContent = msg;
+  chat.replaceChildren(p);
+}
+
+function setReply(m) {
+  replyTo = m ? m.id : null;
+  replyText.textContent = m ? (m.body || "[mídia]") : "";
+  replying.classList.toggle("on", !!m);
+  if (m) text.focus();
+}
+
+function mediaElement(media) {
+  const kind = media.mimetype.split("/")[0];
+  let el;
+  if (kind === "image") {
+    el = document.createElement("img");
+    el.loading = "lazy";
+    el.alt = "imagem";
+    el.onclick = (e) => { e.stopPropagation(); window.open(media.url, "_blank"); };
+  } else if (kind === "video" || kind === "audio") {
+    el = document.createElement(kind);
+    el.controls = true;
+    el.preload = "metadata";
+    el.onclick = (e) => e.stopPropagation();
+  } else {
+    el = document.createElement("a");
+    el.href = media.url;
+    el.download = media.filename || "arquivo";
+    el.textContent = "📎 " + (media.filename || media.mimetype || "arquivo");
+    el.onclick = (e) => e.stopPropagation();
+  }
+  el.src = media.url;
+  el.className = "media";
+  return el;
+}
+
+function render(messages) {
+  if (!messages.length) return status("Nenhuma mensagem.");
+  chat.replaceChildren(...messages.map(m => {
+    const el = document.createElement("div");
+    el.className = "msg" + (m.fromMe ? " me" : "");
+    el.title = "Clique para responder";
+    el.onclick = () => setReply(m);
+    if (!m.fromMe && m.author) {
+      const a = document.createElement("div");
+      a.className = "author";
+      a.textContent = m.author;
+      el.append(a);
+    }
+    if (m.replyTo) {
+      const q = document.createElement("div");
+      q.className = "quote";
+      q.textContent = m.replyTo;
+      el.append(q);
+    }
+    if (m.media) el.append(mediaElement(m.media));
+    else if (m.hasMedia) el.append("[mídia indisponível]\n");
+    if (m.body) el.append(m.body);
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = m.timestamp ? fmt.format(new Date(m.timestamp * 1000)) : "";
+    el.append(meta);
+    return el;
+  }));
+  scroll.scrollTop = scroll.scrollHeight;
+}
+
+async function load() {
+  try {
+    const res = await fetch("/api/messages");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.status);
+    render(data);
+  } catch (e) {
+    status("Erro ao carregar: " + e.message);
+  }
+}
+
+form.onsubmit = async (e) => {
+  e.preventDefault();
+  const body = text.value.trim();
+  if (!body && !image) return;
+  form.sendBtn.disabled = true;
+  try {
+    const res = await fetch("/api/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: body, replyTo, image }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.status);
+    text.value = "";
+    setReply(null);
+    setImage(null);
+    setTimeout(load, 800);
+  } catch (err) {
+    alert("Falha ao enviar: " + err.message);
+  } finally {
+    form.sendBtn.disabled = false;
+  }
+};
+
+text.onkeydown = (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+};
+document.getElementById("cancelReply").onclick = () => setReply(null);
+document.getElementById("cancelImage").onclick = () => setImage(null);
+document.getElementById("attachBtn").onclick = () => fileInput.click();
+fileInput.onchange = () => setImage(fileInput.files[0]);
+text.onpaste = (e) => {
+  const file = [...e.clipboardData.files].find(f => f.type.startsWith("image/"));
+  if (file) { e.preventDefault(); setImage(file); }
+};
+document.getElementById("refresh").onclick = load;
+load();
+</script>
+</body>
+</html>
